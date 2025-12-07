@@ -1,1 +1,14 @@
+{
+    "tools": [
+        {
+            "name": "五子棋",
+            "description": "五子棋棋盘",
+            "tags": [
+                "棋类"
+            ],
+            "icon": "",
+            "featured": false
+        }
+    ]
+}
 
