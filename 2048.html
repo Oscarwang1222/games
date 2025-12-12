@@ -424,6 +424,8 @@
             <div class="modal-title">游戏结束!</div>
             <p style="margin-bottom: 20px; font-size: 1.2rem;">最终得分: <span id="finalScore"
                     style="color: var(--secondary-color); font-weight: bold;">0</span></p>
+            <p id="finalRank" style="margin-bottom: 20px; color: #fff;">排名: <span
+                    style="color: var(--secondary-color); font-weight: bold;">-</span></p>
             <button id="restartBtn">再玩一次</button>
             <button id="closeModalBtn"
                 style="background-color: transparent; border: 1px solid var(--text-secondary); margin-left: 10px;">关闭</button>
@@ -664,7 +666,14 @@
 
             gameOver() {
                 document.getElementById('finalScore').innerText = this.score;
-                this.saveScore(this.score);
+                const rank = this.saveScore(this.score);
+                const rankElement = document.getElementById('finalRank');
+                if (rank) {
+                    rankElement.innerHTML = `排名: <span style="color: var(--secondary-color); font-weight: bold;">第 ${rank} 名</span>`;
+                } else {
+                    rankElement.innerHTML = `排名: <span style="color: #666;">未上榜</span>`;
+                }
+
                 setTimeout(() => {
                     this.modal.classList.add('active');
                 }, 500);
@@ -756,6 +765,31 @@
                         el.remove();
                     }
                 });
+            }
+
+            saveScore(score) {
+                if (score === 0) return null;
+                let leaderboard = JSON.parse(localStorage.getItem('2048_leaderboard')) || [];
+
+                const newEntry = {
+                    score: score,
+                    date: new Date().toLocaleDateString(),
+                    timestamp: Date.now()
+                };
+
+                leaderboard.push(newEntry);
+                leaderboard.sort((a, b) => b.score - a.score);
+
+                const index = leaderboard.indexOf(newEntry);
+
+                leaderboard = leaderboard.slice(0, 10);
+                localStorage.setItem('2048_leaderboard', JSON.stringify(leaderboard));
+                this.loadLeaderboard();
+
+                if (index < 10) {
+                    return index + 1;
+                }
+                return null;
             }
 
             updateScore(s) {
