@@ -142,8 +142,9 @@
 
         .tile {
             position: absolute;
-            transition: transform 0.1s ease-in-out;
+            transition: transform 0.2s ease-in-out;
             z-index: 10;
+            will-change: transform;
         }
 
         .tile-inner {
@@ -157,7 +158,16 @@
             font-size: 2rem;
             color: #776e65;
             background-color: #eee4da;
+            /* Removed default animation to prevent replay on move */
+        }
+
+        .tile-new .tile-inner {
             animation: appear 0.2s ease-in-out backwards;
+        }
+
+        .tile.merged .tile-inner {
+            animation: pop 0.2s ease-in-out;
+            z-index: 20;
         }
 
         @keyframes appear {
@@ -172,74 +182,83 @@
             }
         }
 
+        @keyframes pop {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.2);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
         .tile-inner.tile-2 {
-            background: #eee4da;
+            background-color: #eee4da;
             color: #776e65;
         }
 
         .tile-inner.tile-4 {
-            background: #ede0c8;
+            background-color: #ede0c8;
             color: #776e65;
         }
 
         .tile-inner.tile-8 {
-            background: #f2b179;
+            background-color: #f2b179;
             color: #f9f6f2;
         }
 
         .tile-inner.tile-16 {
-            background: #f59563;
+            background-color: #f59563;
             color: #f9f6f2;
         }
 
         .tile-inner.tile-32 {
-            background: #f67c5f;
+            background-color: #f67c5f;
             color: #f9f6f2;
         }
 
         .tile-inner.tile-64 {
-            background: #f65e3b;
+            background-color: #f65e3b;
             color: #f9f6f2;
         }
 
         .tile-inner.tile-128 {
-            background: #edcf72;
+            background-color: #edcf72;
             color: #f9f6f2;
+            box-shadow: 0 0 10px rgba(243, 215, 116, 0.4);
             font-size: 1.8rem;
-            box-shadow: 0 0 10px #edcf72;
         }
 
         .tile-inner.tile-256 {
-            background: #edcc61;
+            background-color: #edcc61;
             color: #f9f6f2;
+            box-shadow: 0 0 15px rgba(243, 215, 116, 0.5);
             font-size: 1.8rem;
-            box-shadow: 0 0 15px #edcc61;
         }
 
         .tile-inner.tile-512 {
-            background: #edc850;
+            background-color: #edc850;
             color: #f9f6f2;
+            box-shadow: 0 0 20px rgba(243, 215, 116, 0.6);
             font-size: 1.8rem;
-            box-shadow: 0 0 20px #edc850;
         }
 
         .tile-inner.tile-1024 {
-            background: #edc53f;
+            background-color: #edc53f;
             color: #f9f6f2;
+            box-shadow: 0 0 25px rgba(243, 215, 116, 0.7);
             font-size: 1.5rem;
-            box-shadow: 0 0 25px #edc53f;
         }
 
         .tile-inner.tile-2048 {
-            background: #edc22e;
+            background-color: #edc22e;
             color: #f9f6f2;
+            box-shadow: 0 0 30px rgba(243, 215, 116, 0.8);
             font-size: 1.5rem;
-            box-shadow: 0 0 30px #edc22e;
-        }
-
-        /* Disable animation for merged/moved tiles inner, only new ones need pop */
-        .tile.merged .tile-inner {
-            animation: pop 0.2s ease-in-out;
         }
 
         @keyframes pop {
@@ -428,15 +447,40 @@
                 this.touchEndY = 0;
                 this.isMouseDown = false;
                 this.isMoving = false;
+                this.dyingIds = new Set();
+
+                // Cache layout metrics
+                this.metrics = {
+                    cellSize: 0,
+                    gap: 0,
+                    padding: 0
+                };
 
                 this.init();
             }
 
             init() {
+                this.calculateMetrics();
                 this.loadBestScore();
                 this.loadLeaderboard();
                 this.setupInput();
                 this.startNewGame();
+
+                // Recalculate on resize
+                window.addEventListener('resize', () => {
+                    this.calculateMetrics();
+                    this.updateView(true); // Force full update
+                });
+            }
+
+            calculateMetrics() {
+                const gridContainer = document.querySelector('.grid-container');
+                const compStyle = getComputedStyle(gridContainer);
+                const gap = parseFloat(compStyle.getPropertyValue('gap')) || 15;
+                const width = gridContainer.offsetWidth;
+                this.metrics.gap = gap;
+                this.metrics.cellSize = (width - ((this.gridSize - 1) * gap)) / this.gridSize;
+                this.metrics.padding = parseFloat(getComputedStyle(document.querySelector('.game-container')).padding) || 15;
             }
 
             startNewGame() {
@@ -447,11 +491,12 @@
                 this.closeModal();
                 this.addRandomTile();
                 this.addRandomTile();
-                this.updateView();
+                this.updateView(true); // Initial full view
             }
 
             clearTiles() {
                 this.tileContainer.innerHTML = '';
+                this.dyingIds.clear();
             }
 
             addRandomTile() {
@@ -471,7 +516,7 @@
                         value: value,
                         id: 'tile-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
                         merged: false,
-                        isNew: true // Mark as new for animation
+                        isNew: true
                     };
                 }
             }
@@ -480,10 +525,13 @@
                 if (this.isMoving) return;
 
                 let moved = false;
+                this.dyingIds.clear();
+
+                // Clear temporary flags from previous turn
                 this.grid.forEach(row => row.forEach(tile => {
                     if (tile) {
                         tile.merged = false;
-                        tile.isNew = false; // Reset new status
+                        tile.isNew = false;
                     }
                 }));
 
@@ -511,19 +559,22 @@
                             }
 
                             if (nextTile && nextTile.value === tile.value && !nextTile.merged) {
-                                // Merge
+                                // Merge logic
                                 const mergedTile = {
                                     value: tile.value * 2,
-                                    id: tile.id,
+                                    id: tile.id, // Keep moving ID
                                     merged: true
                                 };
                                 this.grid[positions.next.r][positions.next.c] = mergedTile;
                                 this.grid[r][c] = null;
                                 this.score += mergedTile.value;
                                 this.updateScore(this.score);
+
+                                // Mark the stationary tile as dying
+                                this.dyingIds.add(nextTile.id);
                                 moved = true;
                             } else if (positions.farthest.r !== r || positions.farthest.c !== c) {
-                                // Move
+                                // Move logic
                                 this.grid[positions.farthest.r][positions.farthest.c] = tile;
                                 this.grid[r][c] = null;
                                 moved = true;
@@ -534,17 +585,30 @@
 
                 if (moved) {
                     this.isMoving = true;
-                    this.updateView();
+                    // Phase 1: Animate Slide (isFinal = false)
+                    // Tiles move to new positions but keep old appearance (avoid popping while sliding)
+                    this.updateView(false);
 
                     setTimeout(() => {
+                        // Cleanup dying tiles
+                        this.dyingIds.forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) el.remove();
+                        });
+                        this.dyingIds.clear();
+
                         this.addRandomTile();
-                        this.updateView();
+
+                        // Phase 2: Finalize (isFinal = true)
+                        // Update values, trigger pop/merge animations
+                        this.updateView(true);
+
                         this.isMoving = false;
 
                         if (this.checkGameOver()) {
                             this.gameOver();
                         }
-                    }, 120); // slightly longer than 0.1s transition
+                    }, 120);
                 }
             }
 
@@ -610,15 +674,9 @@
                 this.modal.classList.remove('active');
             }
 
-            updateView() {
-                const gridContainer = document.querySelector('.grid-container');
-                const compStyle = getComputedStyle(gridContainer);
-                const gap = parseFloat(compStyle.getPropertyValue('gap')) || 15;
-                const width = gridContainer.offsetWidth;
-
-                const cellSize = (width - ((this.gridSize - 1) * gap)) / this.gridSize;
-                const parentPadding = parseFloat(getComputedStyle(document.querySelector('.game-container')).padding) || 15;
-
+            updateView(isFinal) {
+                // Use cached metrics
+                const { cellSize, gap, padding } = this.metrics;
                 const processedIds = new Set();
 
                 for (let r = 0; r < this.gridSize; r++) {
@@ -627,39 +685,47 @@
                         if (tile) {
                             processedIds.add(tile.id);
 
-                            const x = parentPadding + (c * (cellSize + gap));
-                            const y = parentPadding + (r * (cellSize + gap));
+                            const x = padding + (c * (cellSize + gap));
+                            const y = padding + (r * (cellSize + gap));
 
                             let tileElement = document.getElementById(tile.id);
 
                             if (tileElement) {
-                                // Slide to new position
+                                // Slide
                                 tileElement.style.transform = `translate(${x}px, ${y}px)`;
 
-                                const inner = tileElement.querySelector('.tile-inner');
-                                if (inner) {
-                                    // Update content
-                                    if (inner.textContent != tile.value) {
-                                        inner.textContent = tile.value;
-                                        inner.className = `tile-inner tile-${tile.value}`;
+                                // Only update content/value in Final phase to avoid flicker during slide
+                                if (isFinal) {
+                                    tileElement.classList.remove('tile-new'); // Remove new class after animation
+
+                                    const inner = tileElement.querySelector('.tile-inner');
+                                    if (inner) {
+                                        if (inner.textContent != tile.value) {
+                                            inner.textContent = tile.value;
+                                            inner.className = `tile-inner tile-${tile.value}`;
+                                        }
+
+                                        // Adjust font
+                                        if (tile.value > 1000) inner.style.fontSize = `${cellSize * 0.35}px`;
+                                        else if (tile.value > 100) inner.style.fontSize = `${cellSize * 0.45}px`;
+                                        else inner.style.fontSize = `${cellSize * 0.55}px`;
                                     }
+
+                                    // Toggle merged class for pop animation
                                     if (tile.merged) tileElement.classList.add('merged');
                                     else tileElement.classList.remove('merged');
-
-                                    // Font size
-                                    if (tile.value > 1000) inner.style.fontSize = `${cellSize * 0.35}px`;
-                                    else if (tile.value > 100) inner.style.fontSize = `${cellSize * 0.45}px`;
-                                    else inner.style.fontSize = `${cellSize * 0.55}px`;
                                 }
 
                                 tileElement.style.width = `${cellSize}px`;
                                 tileElement.style.height = `${cellSize}px`;
 
                             } else {
-                                // Create new
+                                // Create new tile
                                 tileElement = document.createElement('div');
                                 tileElement.id = tile.id;
                                 tileElement.className = 'tile';
+                                if (tile.isNew) tileElement.classList.add('tile-new'); // Add class for animation
+
                                 tileElement.style.transform = `translate(${x}px, ${y}px)`;
                                 tileElement.style.width = `${cellSize}px`;
                                 tileElement.style.height = `${cellSize}px`;
@@ -672,11 +738,6 @@
                                 else if (tile.value > 100) inner.style.fontSize = `${cellSize * 0.45}px`;
                                 else inner.style.fontSize = `${cellSize * 0.55}px`;
 
-                                if (!tile.isNew) {
-                                    // Prevent appear animation if it's not actually new (shouldn't happen with ID tracking usually, but good for safety)
-                                    inner.style.animation = 'none';
-                                }
-
                                 tileElement.appendChild(inner);
                                 this.tileContainer.appendChild(tileElement);
                             }
@@ -688,6 +749,10 @@
                 const existingElements = Array.from(this.tileContainer.children);
                 existingElements.forEach(el => {
                     if (!processedIds.has(el.id)) {
+                        // In non-final phase, keep dying elements
+                        if (!isFinal && this.dyingIds.has(el.id)) {
+                            return;
+                        }
                         el.remove();
                     }
                 });
