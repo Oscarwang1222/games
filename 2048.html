@@ -142,7 +142,13 @@
 
         .tile {
             position: absolute;
-            background-color: #eee4da;
+            transition: transform 0.1s ease-in-out;
+            z-index: 10;
+        }
+
+        .tile-inner {
+            width: 100%;
+            height: 100%;
             border-radius: var(--cell-radius);
             display: flex;
             justify-content: center;
@@ -150,9 +156,8 @@
             font-weight: bold;
             font-size: 2rem;
             color: #776e65;
-            transition: transform 0.1s ease-in-out, background-color 0.1s;
-            animation: appear 0.2s ease-in-out;
-            z-index: 10;
+            background-color: #eee4da;
+            animation: appear 0.2s ease-in-out backwards;
         }
 
         @keyframes appear {
@@ -167,69 +172,88 @@
             }
         }
 
-        .tile-2 {
+        .tile-inner.tile-2 {
             background: #eee4da;
             color: #776e65;
         }
 
-        .tile-4 {
+        .tile-inner.tile-4 {
             background: #ede0c8;
             color: #776e65;
         }
 
-        .tile-8 {
+        .tile-inner.tile-8 {
             background: #f2b179;
             color: #f9f6f2;
         }
 
-        .tile-16 {
+        .tile-inner.tile-16 {
             background: #f59563;
             color: #f9f6f2;
         }
 
-        .tile-32 {
+        .tile-inner.tile-32 {
             background: #f67c5f;
             color: #f9f6f2;
         }
 
-        .tile-64 {
+        .tile-inner.tile-64 {
             background: #f65e3b;
             color: #f9f6f2;
         }
 
-        .tile-128 {
+        .tile-inner.tile-128 {
             background: #edcf72;
             color: #f9f6f2;
             font-size: 1.8rem;
             box-shadow: 0 0 10px #edcf72;
         }
 
-        .tile-256 {
+        .tile-inner.tile-256 {
             background: #edcc61;
             color: #f9f6f2;
             font-size: 1.8rem;
             box-shadow: 0 0 15px #edcc61;
         }
 
-        .tile-512 {
+        .tile-inner.tile-512 {
             background: #edc850;
             color: #f9f6f2;
             font-size: 1.8rem;
             box-shadow: 0 0 20px #edc850;
         }
 
-        .tile-1024 {
+        .tile-inner.tile-1024 {
             background: #edc53f;
             color: #f9f6f2;
             font-size: 1.5rem;
             box-shadow: 0 0 25px #edc53f;
         }
 
-        .tile-2048 {
+        .tile-inner.tile-2048 {
             background: #edc22e;
             color: #f9f6f2;
             font-size: 1.5rem;
             box-shadow: 0 0 30px #edc22e;
+        }
+
+        /* Disable animation for merged/moved tiles inner, only new ones need pop */
+        .tile.merged .tile-inner {
+            animation: pop 0.2s ease-in-out;
+        }
+
+        @keyframes pop {
+            0% {
+                transform: scale(0.8);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+
+            100% {
+                transform: scale(1);
+            }
         }
 
         .game-over-modal {
@@ -403,6 +427,7 @@
                 this.touchEndX = 0;
                 this.touchEndY = 0;
                 this.isMouseDown = false;
+                this.isMoving = false;
 
                 this.init();
             }
@@ -445,15 +470,22 @@
                     this.grid[randomCell.r][randomCell.c] = {
                         value: value,
                         id: 'tile-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-                        merged: false
+                        merged: false,
+                        isNew: true // Mark as new for animation
                     };
                 }
             }
 
             move(direction) {
-                let moved = false;
+                if (this.isMoving) return;
 
-                this.grid.forEach(row => row.forEach(tile => { if (tile) tile.merged = false; }));
+                let moved = false;
+                this.grid.forEach(row => row.forEach(tile => {
+                    if (tile) {
+                        tile.merged = false;
+                        tile.isNew = false; // Reset new status
+                    }
+                }));
 
                 const vector = this.getVector(direction);
                 let traverseR = [];
@@ -482,7 +514,7 @@
                                 // Merge
                                 const mergedTile = {
                                     value: tile.value * 2,
-                                    id: tile.id, // Reuse ID of the moving tile to make it slide to destination
+                                    id: tile.id,
                                     merged: true
                                 };
                                 this.grid[positions.next.r][positions.next.c] = mergedTile;
@@ -501,11 +533,18 @@
                 });
 
                 if (moved) {
-                    this.addRandomTile();
+                    this.isMoving = true;
                     this.updateView();
-                    if (this.checkGameOver()) {
-                        this.gameOver();
-                    }
+
+                    setTimeout(() => {
+                        this.addRandomTile();
+                        this.updateView();
+                        this.isMoving = false;
+
+                        if (this.checkGameOver()) {
+                            this.gameOver();
+                        }
+                    }, 120); // slightly longer than 0.1s transition
                 }
             }
 
@@ -580,7 +619,6 @@
                 const cellSize = (width - ((this.gridSize - 1) * gap)) / this.gridSize;
                 const parentPadding = parseFloat(getComputedStyle(document.querySelector('.game-container')).padding) || 15;
 
-                // Mark all tiles for potential removal
                 const processedIds = new Set();
 
                 for (let r = 0; r < this.gridSize; r++) {
@@ -598,19 +636,22 @@
                                 // Slide to new position
                                 tileElement.style.transform = `translate(${x}px, ${y}px)`;
 
-                                // Update content if value changed (merge)
-                                if (tileElement.textContent != tile.value) {
-                                    tileElement.textContent = tile.value;
-                                    tileElement.className = `tile tile-${tile.value}`;
-                                    if (tile.value > 2048) tileElement.classList.add('tile-2048');
+                                const inner = tileElement.querySelector('.tile-inner');
+                                if (inner) {
+                                    // Update content
+                                    if (inner.textContent != tile.value) {
+                                        inner.textContent = tile.value;
+                                        inner.className = `tile-inner tile-${tile.value}`;
+                                    }
+                                    if (tile.merged) tileElement.classList.add('merged');
+                                    else tileElement.classList.remove('merged');
 
-                                    // Adjust font
-                                    if (tile.value > 1000) tileElement.style.fontSize = `${cellSize * 0.35}px`;
-                                    else if (tile.value > 100) tileElement.style.fontSize = `${cellSize * 0.45}px`;
-                                    else tileElement.style.fontSize = `${cellSize * 0.55}px`;
+                                    // Font size
+                                    if (tile.value > 1000) inner.style.fontSize = `${cellSize * 0.35}px`;
+                                    else if (tile.value > 100) inner.style.fontSize = `${cellSize * 0.45}px`;
+                                    else inner.style.fontSize = `${cellSize * 0.55}px`;
                                 }
 
-                                // Ensure size is responsive
                                 tileElement.style.width = `${cellSize}px`;
                                 tileElement.style.height = `${cellSize}px`;
 
@@ -618,25 +659,32 @@
                                 // Create new
                                 tileElement = document.createElement('div');
                                 tileElement.id = tile.id;
-                                tileElement.classList.add('tile', `tile-${tile.value}`);
-                                if (tile.value > 2048) tileElement.classList.add('tile-2048');
-
-                                tileElement.textContent = tile.value;
+                                tileElement.className = 'tile';
                                 tileElement.style.transform = `translate(${x}px, ${y}px)`;
                                 tileElement.style.width = `${cellSize}px`;
                                 tileElement.style.height = `${cellSize}px`;
 
-                                if (tile.value > 1000) tileElement.style.fontSize = `${cellSize * 0.35}px`;
-                                else if (tile.value > 100) tileElement.style.fontSize = `${cellSize * 0.45}px`;
-                                else tileElement.style.fontSize = `${cellSize * 0.55}px`;
+                                const inner = document.createElement('div');
+                                inner.className = `tile-inner tile-${tile.value}`;
+                                inner.textContent = tile.value;
 
+                                if (tile.value > 1000) inner.style.fontSize = `${cellSize * 0.35}px`;
+                                else if (tile.value > 100) inner.style.fontSize = `${cellSize * 0.45}px`;
+                                else inner.style.fontSize = `${cellSize * 0.55}px`;
+
+                                if (!tile.isNew) {
+                                    // Prevent appear animation if it's not actually new (shouldn't happen with ID tracking usually, but good for safety)
+                                    inner.style.animation = 'none';
+                                }
+
+                                tileElement.appendChild(inner);
                                 this.tileContainer.appendChild(tileElement);
                             }
                         }
                     }
                 }
 
-                // Cleanup tiles that no longer exist in the grid
+                // Cleanup
                 const existingElements = Array.from(this.tileContainer.children);
                 existingElements.forEach(el => {
                     if (!processedIds.has(el.id)) {
@@ -694,7 +742,7 @@
 
             setupInput() {
                 document.addEventListener('keydown', (e) => {
-                    if (this.modal.classList.contains('active')) return;
+                    if (this.modal.classList.contains('active') || this.isMoving) return;
                     const map = {
                         38: 0, 87: 0,
                         39: 1, 68: 1,
@@ -710,21 +758,21 @@
                 const gameContainer = document.querySelector('.game-container');
 
                 gameContainer.addEventListener('touchstart', (e) => {
-                    if (this.modal.classList.contains('active')) return;
+                    if (this.modal.classList.contains('active') || this.isMoving) return;
                     this.touchStartX = e.changedTouches[0].screenX;
                     this.touchStartY = e.changedTouches[0].screenY;
                     e.preventDefault();
                 }, { passive: false });
 
                 gameContainer.addEventListener('touchend', (e) => {
-                    if (this.modal.classList.contains('active')) return;
+                    if (this.modal.classList.contains('active') || this.isMoving) return;
                     this.touchEndX = e.changedTouches[0].screenX;
                     this.touchEndY = e.changedTouches[0].screenY;
                     this.handleSwipe();
                 }, { passive: false });
 
                 gameContainer.addEventListener('mousedown', (e) => {
-                    if (this.modal.classList.contains('active')) return;
+                    if (this.modal.classList.contains('active') || this.isMoving) return;
                     this.isMouseDown = true;
                     this.touchStartX = e.screenX;
                     this.touchStartY = e.screenY;
