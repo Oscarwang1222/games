@@ -806,18 +806,7 @@
                 this.bestScoreElement.innerText = this.bestScore;
             }
 
-            saveScore(score) {
-                if (score === 0) return;
-                let leaderboard = JSON.parse(localStorage.getItem('2048_leaderboard')) || [];
-                leaderboard.push({
-                    score: score,
-                    date: new Date().toLocaleDateString()
-                });
-                leaderboard.sort((a, b) => b.score - a.score);
-                leaderboard = leaderboard.slice(0, 10);
-                localStorage.setItem('2048_leaderboard', JSON.stringify(leaderboard));
-                this.loadLeaderboard();
-            }
+
 
             loadLeaderboard() {
                 const list = document.getElementById('leaderboardList');
